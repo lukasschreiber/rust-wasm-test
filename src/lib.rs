@@ -9,32 +9,40 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[wasm_bindgen]
-extern {
-    fn alert(s: &str);
-}
+// #[wasm_bindgen]
+// pub struct RenderContext {
+//     window: Box<Window<()>>,
+// }
+
+// #[wasm_bindgen]
+// impl RenderContext {
+//     #[wasm_bindgen(constructor)]
+//     pub fn new(width: u32, height: u32) -> RenderContext {
+//         RenderContext { window: Box::new(Window::new(WindowSettings {
+//             title: "Render Window".to_string(),
+//             max_size: Some((width, height)),
+//             ..Default::default()
+//         }).unwrap()) }
+//     }
+
+//     pub fn get(&self) -> Box<Window<()>> {
+//         self.window
+//     }
+
+//     pub fn set(&mut self, window: Box<Window<()>>) {
+//         self.window = window;
+//     }
+// }
 
 #[wasm_bindgen]
-pub fn greet() {
-    alert("Hello, wasm-example! test");
-}
-
-#[wasm_bindgen]
-pub fn funcy_string() -> String {
-    let str = String::from("");
-    return str + " Hallo Miri!!!";
-}
-
-#[wasm_bindgen]
-pub fn test3_d() {
+pub fn instanced_test() {
     utils::set_panic_hook();
     
     let window = Window::new(WindowSettings {
         title: "Instanced Shapes!".to_string(),
         max_size: Some((1280, 720)),
         ..Default::default()
-    })
-    .unwrap();
+    }).unwrap();
     let context = window.gl();
 
     let mut camera = Camera::new_perspective(
@@ -77,13 +85,10 @@ pub fn test3_d() {
     let is_instanced = true;
 
     window.render_loop(move |mut frame_input| {
-        // Gui panel to control the number of cubes and whether or not instancing is turned on.
-        let panel_width = 0.0;
         let viewport = Viewport {
-            x: (panel_width * frame_input.device_pixel_ratio) as i32,
+            x: 0,
             y: 0,
-            width: frame_input.viewport.width
-                - (panel_width * frame_input.device_pixel_ratio) as u32,
+            width: frame_input.viewport.width,
             height: frame_input.viewport.height,
         };
         camera.set_viewport(viewport);

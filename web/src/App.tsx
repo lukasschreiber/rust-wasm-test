@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import * as wasm from "wasm-example"
 
 function App() {
@@ -6,7 +6,7 @@ function App() {
 
   return (
     <div className="App">
-      {!showCanvas && <button onClick={() => { setShowCanvas(true); wasm.test3_d() }}>Show Rendering</button>}
+      <button onClick={() => { setShowCanvas(true); wasm.instanced_test() }}>Show Rendering</button>
       <canvas style={{ display: (showCanvas ? "block" : "none"), width: "100%", height: "100%" }}></canvas>
     </div>
   )
