@@ -2,6 +2,7 @@ mod utils;
 
 use three_d::*;
 use wasm_bindgen::prelude::*;
+use winit::event_loop::EventLoop;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -34,15 +35,38 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 //     }
 // }
 
-#[wasm_bindgen]
-pub fn instanced_test() {
-    utils::set_panic_hook();
-    
-    let window = Window::new(WindowSettings {
-        title: "Instanced Shapes!".to_string(),
-        max_size: Some((1280, 720)),
-        ..Default::default()
-    }).unwrap();
+fn create_window(
+    event_loop: &EventLoop<()>,
+    id: &str,
+) -> impl FnMut(
+    &winit::event::Event<()>,
+    &winit::event_loop::EventLoopWindowTarget<()>,
+    &mut winit::event_loop::ControlFlow,
+) {
+    let websys_window = web_sys::window()
+        .ok_or(WindowError::WindowCreation)
+        .unwrap();
+    let document = websys_window
+        .document()
+        .ok_or(WindowError::DocumentMissing)
+        .unwrap();
+
+    let window = Window::from_event_loop(
+        WindowSettings {
+            title: "Instanced Shapes!".to_string(),
+            max_size: Some((1280, 720)),
+            canvas: Some(document
+                .get_element_by_id(id)
+                .expect(
+                    "settings doesn't contain canvas and DOM doesn't have a canvas element either",
+                )
+                .dyn_into::<web_sys::HtmlCanvasElement>()
+                .map_err(|e| WindowError::CanvasConvertFailed(format!("{:?}", e))).unwrap()),
+            ..Default::default()
+        },
+        &event_loop,
+    )
+    .unwrap();
     let context = window.gl();
 
     let mut camera = Camera::new_perspective(
@@ -84,7 +108,7 @@ pub fn instanced_test() {
     let side_count = 4;
     let is_instanced = true;
 
-    window.render_loop(move |mut frame_input| {
+    window.get_render_loop_impl::<(), _>(move |mut frame_input| {
         let viewport = Viewport {
             x: 0,
             y: 0,
@@ -170,5 +194,22 @@ pub fn instanced_test() {
             .render(&camera, render_objects, &[&light0, &light1]);
 
         FrameOutput::default()
-    });
+    })
+}
+
+#[wasm_bindgen]
+pub fn instanced_test() {
+    use winit::platform::web::EventLoopExtWebSys;
+
+    utils::set_panic_hook();
+
+    let event_loop = EventLoop::new();
+
+    let mut event_loop_1 = create_window(&event_loop, "canvas1");
+    let mut event_loop_2 = create_window(&event_loop, "canvas2");
+
+    event_loop.run(move |event, target, control_flow| {
+        event_loop_1(&event, target, control_flow);
+        event_loop_2(&event, target, control_flow);
+    })
 }

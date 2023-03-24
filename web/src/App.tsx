@@ -7,7 +7,9 @@ function App() {
   return (
     <div className="App">
       <button onClick={() => { setShowCanvas(true); wasm.instanced_test() }}>Show Rendering</button>
-      <canvas style={{ display: (showCanvas ? "block" : "none"), width: "100%", height: "100%" }}></canvas>
+      <canvas id="canvas1" style={{ display: (showCanvas ? "block" : "none"), width: "100%", height: "50%" }}></canvas>
+      <canvas id="canvas2" style={{ display: (showCanvas ? "block" : "none"), width: "100%", height: "50%" }}></canvas>
+
     </div>
   )
 }
