@@ -205,11 +205,11 @@ pub fn instanced_test() {
 
     let event_loop = EventLoop::new();
 
-    let mut event_loop_1 = create_window(&event_loop, "canvas1");
+    //let mut event_loop_1 = create_window(&event_loop, "canvas1");
     let mut event_loop_2 = create_window(&event_loop, "canvas2");
 
     event_loop.run(move |event, target, control_flow| {
-        event_loop_1(&event, target, control_flow);
+        // event_loop_1(&event, target, control_flow);
         event_loop_2(&event, target, control_flow);
     })
 }
