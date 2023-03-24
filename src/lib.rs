@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 use three_d::*;
 use wasm_bindgen::prelude::*;
-use winit::{event_loop::EventLoop, window::WindowId};
+use winit::{
+    event_loop::{EventLoop, EventLoopWindowTarget},
+    window::WindowId,
+};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -58,10 +61,10 @@ impl Rendering {
     pub fn new() -> Self {
         utils::set_panic_hook();
 
-        event_loop.spawn(move |event, target, control_flow| {
+        /*event_loop.spawn(move |event, target, control_flow| {
             event_loop_1(&event, target, control_flow);
             event_loop_2(&event, target, control_flow);
-        });
+        });*/
 
         Self {
             event_loop: EventLoop::new(),
@@ -69,7 +72,11 @@ impl Rendering {
         }
     }
 
-    fn create_window(&mut self, event_loop: &EventLoop<()>, canvas_id: &str) -> WindowId {
+    fn create_window(
+        &mut self,
+        event_loop: &EventLoopWindowTarget<()>,
+        canvas_id: &str,
+    ) -> WindowId {
         let websys_window = web_sys::window()
             .ok_or(WindowError::WindowCreation)
             .unwrap();
@@ -137,94 +144,99 @@ impl Rendering {
         let side_count = 4;
         let is_instanced = true;
 
-        let event_handler = window.get_render_loop_impl::<(), _>(move |mut frame_input| {
-            let viewport = Viewport {
-                x: 0,
-                y: 0,
-                width: frame_input.viewport.width,
-                height: frame_input.viewport.height,
-            };
-            camera.set_viewport(viewport);
+        let event_handler = window.get_render_loop_impl::<(), _>(
+            move |mut frame_input, event, event_loop, control_flow| {
+                let viewport = Viewport {
+                    x: 0,
+                    y: 0,
+                    width: frame_input.viewport.width,
+                    height: frame_input.viewport.height,
+                };
+                camera.set_viewport(viewport);
 
-            // Camera control must be after the gui update.
-            control.handle_events(&mut camera, &mut frame_input.events);
+                // Camera control must be after the gui update.
+                control.handle_events(&mut camera, &mut frame_input.events);
 
-            // Ensure we have the correct number of cubes, does no work if already correctly sized.
-            let count = side_count * side_count * side_count;
-            if non_instanced_meshes.len() != count {
-                non_instanced_meshes.clear();
-                for i in 0..count {
-                    let mut gm = Gm::new(
-                        Mesh::new(&context, &CpuMesh::cube()),
-                        PhysicalMaterial::new(
-                            &context,
-                            &CpuMaterial {
-                                albedo: Color {
-                                    r: 128,
-                                    g: 128,
-                                    b: 128,
-                                    a: 255,
+                // Ensure we have the correct number of cubes, does no work if already correctly sized.
+                let count = side_count * side_count * side_count;
+                if non_instanced_meshes.len() != count {
+                    non_instanced_meshes.clear();
+                    for i in 0..count {
+                        let mut gm = Gm::new(
+                            Mesh::new(&context, &CpuMesh::cube()),
+                            PhysicalMaterial::new(
+                                &context,
+                                &CpuMaterial {
+                                    albedo: Color {
+                                        r: 128,
+                                        g: 128,
+                                        b: 128,
+                                        a: 255,
+                                    },
+                                    ..Default::default()
                                 },
-                                ..Default::default()
-                            },
-                        ),
-                    );
-                    let x = (i % side_count) as f32;
-                    let y = ((i as f32 / side_count as f32).floor() as usize % side_count) as f32;
-                    let z = (i as f32 / side_count.pow(2) as f32).floor();
-                    gm.set_transformation(Mat4::from_translation(
-                        3.0 * vec3(x, y, z) - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
-                    ));
-                    gm.set_animation(|time| Mat4::from_angle_x(Rad(time)));
-                    non_instanced_meshes.push(gm);
+                            ),
+                        );
+                        let x = (i % side_count) as f32;
+                        let y =
+                            ((i as f32 / side_count as f32).floor() as usize % side_count) as f32;
+                        let z = (i as f32 / side_count.pow(2) as f32).floor();
+                        gm.set_transformation(Mat4::from_translation(
+                            3.0 * vec3(x, y, z) - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
+                        ));
+                        gm.set_animation(|time| Mat4::from_angle_x(Rad(time)));
+                        non_instanced_meshes.push(gm);
+                    }
                 }
-            }
 
-            if instanced_mesh.instance_count() != count as u32 {
-                instanced_mesh.set_instances(&Instances {
-                    transformations: (0..count)
-                        .map(|i| {
-                            let x = (i % side_count) as f32;
-                            let y = ((i as f32 / side_count as f32).floor() as usize % side_count)
-                                as f32;
-                            let z = (i as f32 / side_count.pow(2) as f32).floor();
-                            Mat4::from_translation(
-                                3.0 * vec3(x, y, z)
-                                    - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
-                            )
-                        })
-                        .collect(),
-                    ..Default::default()
-                });
-            }
+                if instanced_mesh.instance_count() != count as u32 {
+                    instanced_mesh.set_instances(&Instances {
+                        transformations: (0..count)
+                            .map(|i| {
+                                let x = (i % side_count) as f32;
+                                let y = ((i as f32 / side_count as f32).floor() as usize
+                                    % side_count) as f32;
+                                let z = (i as f32 / side_count.pow(2) as f32).floor();
+                                Mat4::from_translation(
+                                    3.0 * vec3(x, y, z)
+                                        - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
+                                )
+                            })
+                            .collect(),
+                        ..Default::default()
+                    });
+                }
 
-            // Always update the transforms for both the normal cubes as well as the instanced versions.
-            // This shows that the difference in frame rate is not because of updating the transforms
-            // and shows that the performance difference is not related to how we update the cubes.
-            let time = (frame_input.accumulated_time * 0.001) as f32;
-            instanced_mesh.animate(time);
-            non_instanced_meshes
-                .iter_mut()
-                .for_each(|m| m.animate(time));
-
-            // Then, based on whether or not we render the instanced cubes, collect the renderable
-            // objects.
-            let render_objects: Vec<&dyn Object> = if is_instanced {
-                instanced_mesh.into_iter().collect()
-            } else {
+                // Always update the transforms for both the normal cubes as well as the instanced versions.
+                // This shows that the difference in frame rate is not because of updating the transforms
+                // and shows that the performance difference is not related to how we update the cubes.
+                let time = (frame_input.accumulated_time * 0.001) as f32;
+                instanced_mesh.animate(time);
                 non_instanced_meshes
-                    .iter()
-                    .map(|x| x as &dyn Object)
-                    .collect()
-            };
+                    .iter_mut()
+                    .for_each(|m| m.animate(time));
 
-            frame_input
-                .screen()
-                .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
-                .render(&camera, render_objects, &[&light0, &light1]);
+                // Then, based on whether or not we render the instanced cubes, collect the renderable
+                // objects.
+                let render_objects: Vec<&dyn Object> = if is_instanced {
+                    instanced_mesh.into_iter().collect()
+                } else {
+                    non_instanced_meshes
+                        .iter()
+                        .map(|x| x as &dyn Object)
+                        .collect()
+                };
 
-            FrameOutput::default()
-        });
+                frame_input
+                    .screen()
+                    .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
+                    .render(&camera, render_objects, &[&light0, &light1]);
+
+                self.create_window(event_loop, "abc");
+
+                FrameOutput::default()
+            },
+        );
 
         self.windows
             .insert(window.window.id(), Box::new(event_handler));
