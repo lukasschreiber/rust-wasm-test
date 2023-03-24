@@ -144,6 +144,8 @@ impl Rendering {
         let side_count = 4;
         let is_instanced = true;
 
+        let window_id = window.window.id();
+
         let event_handler = window.get_render_loop_impl::<(), _>(
             move |mut frame_input, event, event_loop, control_flow| {
                 let viewport = Viewport {
@@ -232,15 +234,12 @@ impl Rendering {
                     .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
                     .render(&camera, render_objects, &[&light0, &light1]);
 
-                self.create_window(event_loop, "abc");
-
                 FrameOutput::default()
             },
         );
 
-        self.windows
-            .insert(window.window.id(), Box::new(event_handler));
+        self.windows.insert(window_id, Box::new(event_handler));
 
-        window.window.id()
+        window_id
     }
 }
