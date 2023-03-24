@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from "react"
+import { createContext, useContext, useEffect, useRef, useState } from "react"
 import * as wasm from "wasm-example"
 
+const RenderingContext = createContext(new wasm.Rendering());
+
 function App() {
+  const rendering = useContext(RenderingContext)
+
   useEffect(() => {
-    wasm.instanced_test()
+    rendering.create_window()
   })
 
   return (

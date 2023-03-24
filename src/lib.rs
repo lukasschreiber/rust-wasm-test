@@ -43,8 +43,19 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen]
 pub struct Rendering {
     event_loop: EventLoop<()>,
+    pending_windows: Vec<
+        fn(
+            &winit::event_loop::EventLoopWindowTarget<()>,
+        ) -> Box<
+            dyn FnMut(
+                &winit::event::Event<()>,
+                &winit::event_loop::EventLoopWindowTarget<()>,
+                &mut winit::event_loop::ControlFlow,
+            ),
+        >,
+    >,
     windows: HashMap<
-        WindowId,
+        u64,
         Box<
             dyn FnMut(
                 &winit::event::Event<()>,
@@ -68,15 +79,15 @@ impl Rendering {
 
         Self {
             event_loop: EventLoop::new(),
+            pending_windows: Vec::new(),
             windows: HashMap::new(),
         }
     }
 
-    fn create_window(
-        &mut self,
-        event_loop: &EventLoopWindowTarget<()>,
-        canvas_id: &str,
-    ) -> WindowId {
+    #[wasm_bindgen]
+    pub fn create_window(&mut self, canvas_id: &str) -> u64 {
+        // event_loop: &EventLoopWindowTarget<()>,
+
         let websys_window = web_sys::window()
             .ok_or(WindowError::WindowCreation)
             .unwrap();
@@ -144,7 +155,7 @@ impl Rendering {
         let side_count = 4;
         let is_instanced = true;
 
-        let window_id = window.window.id();
+        let window_id: u64 = window.window.id().into();
 
         let event_handler = window.get_render_loop_impl::<(), _>(
             move |mut frame_input, event, event_loop, control_flow| {
