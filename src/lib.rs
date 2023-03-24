@@ -50,18 +50,20 @@ fn create_window(
         .document()
         .ok_or(WindowError::DocumentMissing)
         .unwrap();
+    let canvas_element = document
+        .get_element_by_id(id)
+        .expect("settings doesn't contain canvas and DOM doesn't have a canvas element either")
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .map_err(|e| WindowError::CanvasConvertFailed(format!("{:?}", e)))
+        .unwrap();
+
+    println!("canvas {}", canvas_element.id());
 
     let window = Window::from_event_loop(
         WindowSettings {
             title: "Instanced Shapes!".to_string(),
             max_size: Some((1280, 720)),
-            canvas: Some(document
-                .get_element_by_id(id)
-                .expect(
-                    "settings doesn't contain canvas and DOM doesn't have a canvas element either",
-                )
-                .dyn_into::<web_sys::HtmlCanvasElement>()
-                .map_err(|e| WindowError::CanvasConvertFailed(format!("{:?}", e))).unwrap()),
+            canvas: Some(canvas_element),
             ..Default::default()
         },
         &event_loop,
@@ -205,11 +207,11 @@ pub fn instanced_test() {
 
     let event_loop = EventLoop::new();
 
-    //let mut event_loop_1 = create_window(&event_loop, "canvas1");
+    let mut event_loop_1 = create_window(&event_loop, "canvas1");
     let mut event_loop_2 = create_window(&event_loop, "canvas2");
 
     event_loop.run(move |event, target, control_flow| {
-        // event_loop_1(&event, target, control_flow);
+        event_loop_1(&event, target, control_flow);
         event_loop_2(&event, target, control_flow);
     })
 }
