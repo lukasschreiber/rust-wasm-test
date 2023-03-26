@@ -1,6 +1,6 @@
 mod utils;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, convert::Infallible};
 
 use three_d::{
     degrees, vec3, Camera, ClearState, Color, CpuMaterial, CpuMesh, DirectionalLight, FrameOutput,
@@ -10,7 +10,7 @@ use three_d::{
 use wasm_bindgen::prelude::*;
 use winit::{
     event::Event,
-    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
     window::WindowId,
 };
 
@@ -20,81 +20,66 @@ use winit::{
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-// #[wasm_bindgen]
-// pub struct RenderContext {
-//     window: Box<Window<()>>,
-// }
-
-// #[wasm_bindgen]
-// impl RenderContext {
-//     #[wasm_bindgen(constructor)]
-//     pub fn new(width: u32, height: u32) -> RenderContext {
-//         RenderContext { window: Box::new(Window::new(WindowSettings {
-//             title: "Render Window".to_string(),
-//             max_size: Some((width, height)),
-//             ..Default::default()
-//         }).unwrap()) }
-//     }
-
-//     pub fn get(&self) -> Box<Window<()>> {
-//         self.window
-//     }
-
-//     pub fn set(&mut self, window: Box<Window<()>>) {
-//         self.window = window;
-//     }
-// }
-
-#[wasm_bindgen]
-pub struct Rendering {
-    pending_handlers: Vec<
+#[non_exhaustive]
+pub enum RenderingUserEvent<Q: 'static> {
+    InternalCreateWindow(
         Box<
             dyn FnOnce(
-                &winit::event_loop::EventLoopWindowTarget<()>,
+                &EventLoopWindowTarget<RenderingUserEvent<Q>>,
             ) -> Box<
                 dyn FnMut(
-                    &winit::event::Event<()>,
-                    &winit::event_loop::EventLoopWindowTarget<()>,
+                    &winit::event::Event<RenderingUserEvent<Q>>,
+                    &winit::event_loop::EventLoopWindowTarget<RenderingUserEvent<Q>>,
                     &mut winit::event_loop::ControlFlow,
                 ),
             >,
         >,
-    >,
-    handlers: HashMap<
-        u64,
-        Box<
-            dyn FnMut(
-                &winit::event::Event<()>,
-                &winit::event_loop::EventLoopWindowTarget<()>,
-                &mut winit::event_loop::ControlFlow,
-            ),
-        >,
-    >,
+    ),
+    Other(Q),
 }
 
 #[wasm_bindgen]
-impl Rendering {
-    #[wasm_bindgen]
+pub struct RenderingNever(Rendering<Infallible>);
+
+pub struct Rendering<Q: 'static> {
+    event_loop: EventLoop<RenderingUserEvent<Q>>,
+}
+
+impl<Q: 'static> Rendering<Q> {
     pub fn new() -> Self {
         utils::set_panic_hook();
 
         Self {
-            pending_handlers: Vec::new(),
-            handlers: HashMap::new(),
+            event_loop: EventLoopBuilder::with_user_event().build(),
         }
     }
 
-    pub fn start(mut self) {
-        let event_loop = EventLoop::new();
+    pub fn get_proxy(&self) -> EventLoopProxy<RenderingUserEvent<Q>> {
+        self.event_loop.create_proxy()
+    }
 
-        event_loop.run(move |event, target, control_flow| {
-            for handler in self.handlers.values_mut() {
-                handler(&event, target, control_flow);
+    pub fn start(self) {
+        let mut handlers: Vec<
+            Box<
+                dyn FnMut(
+                    &winit::event::Event<RenderingUserEvent<Q>>,
+                    &winit::event_loop::EventLoopWindowTarget<RenderingUserEvent<Q>>,
+                    &mut winit::event_loop::ControlFlow,
+                ),
+            >,
+        > = Vec::new();
+
+        self.event_loop.run(move |event, target, control_flow| {
+            if let Event::UserEvent(RenderingUserEvent::InternalCreateWindow(callback)) = event {
+                handlers.push(callback(target));
+            } else {
+                for handler in handlers.iter_mut() {
+                    handler(&event, target, control_flow);
+                }
             }
         });
     }
 
-    #[wasm_bindgen]
     pub fn create_window(&mut self, canvas_id: &str) {
         // event_loop: &EventLoopWindowTarget<()>,
 
@@ -265,7 +250,5 @@ impl Rendering {
             ));
             event_handler
         };
-
-        self.pending_handlers.push(Box::new(window_inserter));
     }
 }
