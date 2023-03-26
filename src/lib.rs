@@ -218,16 +218,14 @@ pub fn create_window(
             let side_count = 4;
             let is_instanced = true;
 
-            let window_id: u64 = window.window.id().into();
-
             let inner_callback: Box<
                 dyn FnMut(
                     &winit::event::Event<RenderingUserEvent<()>>,
                     &winit::event_loop::EventLoopWindowTarget<RenderingUserEvent<()>>,
                     &mut winit::event_loop::ControlFlow,
                 ),
-            > = Box::new(window.get_render_loop_impl::<RenderingUserEvent<()>, _>(
-                move |mut frame_input, event, event_loop, control_flow| {
+            > = Box::new(window.get_render_loop::<RenderingUserEvent<()>, _>(
+                move |mut frame_input| {
                     let viewport = Viewport {
                         x: 0,
                         y: 0,
