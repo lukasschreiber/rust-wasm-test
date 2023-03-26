@@ -27,6 +27,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 pub enum RenderingUserEvent<Q: 'static> {
     InternalCreateWindow(
+        usize,
         Box<
             dyn FnOnce(
                 &EventLoopWindowTarget<RenderingUserEvent<Q>>,
@@ -39,13 +40,15 @@ pub enum RenderingUserEvent<Q: 'static> {
             >,
         >,
     ),
+    InternalDeleteWindow(usize),
     Other(Q),
 }
 
 impl<Q: Clone + 'static> Clone for RenderingUserEvent<Q> {
     fn clone(&self) -> Self {
         match self {
-            Self::InternalCreateWindow(arg0) => panic!("can't clone InternalCreateWindow"),
+            Self::InternalCreateWindow(arg0, arg1) => panic!("can't clone InternalCreateWindow"),
+            Self::InternalDeleteWindow(arg0) => panic!("can't clone InternalDeleteWindow"),
             Self::Other(arg0) => Self::Other(arg0.clone()),
         }
     }
@@ -63,7 +66,7 @@ impl RenderingNever {
 
     #[wasm_bindgen]
     pub fn get_proxy(&self) -> MyEventLoopProxy {
-        MyEventLoopProxy(self.0.get_proxy())
+        MyEventLoopProxy(self.0.get_proxy(), 0)
     }
 
     #[wasm_bindgen]
@@ -73,21 +76,32 @@ impl RenderingNever {
 }
 
 #[wasm_bindgen]
-pub struct MyEventLoopProxy(EventLoopProxy<RenderingUserEvent<()>>);
+pub struct MyEventLoopProxy(EventLoopProxy<RenderingUserEvent<()>>, usize);
 
 #[wasm_bindgen]
 impl MyEventLoopProxy {
+    #[wasm_bindgen]
     pub fn send_event(&self) {
         self.0
             .send_event(RenderingUserEvent::Other(()))
             .unwrap_or_else(|_| panic!("Something went horribly wrong!"));
     }
 
-    pub fn create_window(&self, canvas_id: &str) {
+    #[wasm_bindgen]
+    pub fn create_window(&mut self, canvas_id: &str) -> usize {
+        let value = create_window(canvas_id);
+        let id = self.1;
         self.0
-            .send_event(RenderingUserEvent::InternalCreateWindow(create_window(
-                canvas_id,
-            )))
+            .send_event(RenderingUserEvent::InternalCreateWindow(id, value))
+            .unwrap_or_else(|_| panic!("Something went horribly wrong!"));
+        self.1 += 1;
+        id
+    }
+
+    #[wasm_bindgen]
+    pub fn delete_window(&self, id: usize) {
+        self.0
+            .send_event(RenderingUserEvent::InternalDeleteWindow(id))
             .unwrap_or_else(|_| panic!("Something went horribly wrong!"));
     }
 }
@@ -110,7 +124,8 @@ impl<Q: 'static> Rendering<Q> {
     }
 
     pub fn run(self) -> ! {
-        let mut handlers: Vec<
+        let mut handlers: HashMap<
+            usize,
             Box<
                 dyn FnMut(
                     &winit::event::Event<RenderingUserEvent<Q>>,
@@ -118,16 +133,19 @@ impl<Q: 'static> Rendering<Q> {
                     &mut winit::event_loop::ControlFlow,
                 ),
             >,
-        > = Vec::new();
+        > = HashMap::new();
 
         self.event_loop.run(move |event, target, control_flow| {
             match event {
-                Event::UserEvent(RenderingUserEvent::InternalCreateWindow(callback)) => {
-                    handlers.push(callback(target));
+                Event::UserEvent(RenderingUserEvent::InternalCreateWindow(id, callback)) => {
+                    handlers.insert(id, callback(target));
+                }
+                Event::UserEvent(RenderingUserEvent::InternalDeleteWindow(id)) => {
+                    handlers.remove(&id);
                 }
                 event => {
                     // TODO FIXME remove our custom type wrapper RenderingUserEvent and then maybe we could use an FnOnce above
-                    for handler in handlers.iter_mut() {
+                    for handler in handlers.values_mut() {
                         handler(&event, target, control_flow);
                     }
                 }

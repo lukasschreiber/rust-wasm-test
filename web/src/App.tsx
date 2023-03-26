@@ -5,9 +5,17 @@ function App() {
   const rendering = useContext(RenderingContext)
 
   useEffect(() => {
-    console.log("useEffect")
-    rendering.create_window("canvas1")
-    rendering.create_window("canvas2")
+    console.log("useEffect creation")
+    let ref1 = rendering.create_window("canvas1");
+    let ref2 = rendering.create_window("canvas2");
+    console.log("useEffect creation done")
+
+    return () => {
+      console.log("useEffect cleanup")
+      rendering.delete_window(ref1)
+      rendering.delete_window(ref2)
+      console.log("useEffect cleanup done")
+    }
   })
 
   return (
