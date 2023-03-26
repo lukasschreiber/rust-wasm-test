@@ -76,24 +76,22 @@ pub struct Rendering {
 impl Rendering {
     #[wasm_bindgen]
     pub fn new() -> Self {
-        use winit::platform::web::EventLoopExtWebSys;
-
         utils::set_panic_hook();
 
-        let event_loop = EventLoop::new();
-
-        let mut rendering = Self {
+        Self {
             pending_handlers: Vec::new(),
             handlers: HashMap::new(),
-        };
+        }
+    }
 
-        event_loop.spawn(move |event, target, control_flow| {
-            for handler in rendering.handlers.values_mut() {
+    pub fn start(mut self) {
+        let event_loop = EventLoop::new();
+
+        event_loop.run(move |event, target, control_flow| {
+            for handler in self.handlers.values_mut() {
                 handler(&event, target, control_flow);
             }
         });
-
-        rendering
     }
 
     #[wasm_bindgen]
