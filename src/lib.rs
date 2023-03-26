@@ -26,7 +26,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 pub enum RenderingUserEvent<Q: 'static> {
     InternalCreateWindow(
         Rc<
-            dyn FnOnce(
+            dyn Fn(
                 &EventLoopWindowTarget<RenderingUserEvent<Q>>,
             ) -> Box<
                 dyn FnMut(
@@ -75,6 +75,7 @@ impl<Q: 'static> Rendering<Q> {
             if let Event::UserEvent(RenderingUserEvent::InternalCreateWindow(callback)) = event {
                 handlers.push(callback(target));
             } else {
+                // TODO FIXME remove our custom type wrapper RenderingUserEvent and then maybe we could use an FnOnce above
                 for handler in handlers.iter_mut() {
                     handler(&event, target, control_flow);
                 }
