@@ -1,13 +1,22 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react"
 import * as wasm from "wasm-example"
 
-const RenderingContext = createContext(new wasm.Rendering());
+const RenderingContext = createContext((() => {
+  const rendering = new wasm.RenderingNever();
+  const proxy = rendering.get_proxy();
+  try {
+    rendering.run()
+  } catch (error) {
+    console.error(error)
+  }
+  return proxy
+})());
 
 function App() {
   const rendering = useContext(RenderingContext)
 
   useEffect(() => {
-    rendering.create_window()
+    rendering.send_event()
   })
 
   return (

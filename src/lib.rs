@@ -1,6 +1,6 @@
 mod utils;
 
-use std::{collections::HashMap, convert::Infallible, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use three_d::{
     degrees, vec3, Camera, ClearState, Color, CpuMaterial, CpuMesh, DirectionalLight, FrameOutput,
@@ -10,7 +10,10 @@ use three_d::{
 use wasm_bindgen::prelude::*;
 use winit::{
     event::Event,
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
+    event_loop::{
+        ControlFlow, EventLoop, EventLoopBuilder, EventLoopClosed, EventLoopProxy,
+        EventLoopWindowTarget,
+    },
     window::WindowId,
 };
 
@@ -26,7 +29,7 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 pub enum RenderingUserEvent<Q: 'static> {
     InternalCreateWindow(
         Rc<
-            dyn Fn(
+            dyn FnOnce(
                 &EventLoopWindowTarget<RenderingUserEvent<Q>>,
             ) -> Box<
                 dyn FnMut(
@@ -41,7 +44,42 @@ pub enum RenderingUserEvent<Q: 'static> {
 }
 
 #[wasm_bindgen]
-pub struct RenderingNever(Rendering<Infallible>);
+pub struct RenderingNever(Rendering<()>);
+
+#[wasm_bindgen]
+pub struct MyEventLoopProxy(EventLoopProxy<RenderingUserEvent<()>>);
+
+#[wasm_bindgen]
+impl MyEventLoopProxy {
+    pub fn send_event(&self) {
+        self.0
+            .send_event(RenderingUserEvent::Other(()))
+            .unwrap_or_else(|_| panic!("Something went horribly wrong!"));
+    }
+
+    pub fn create_window(&self, canvas_id: &str) {
+        self.0
+            .send_event(RenderingUserEvent::InternalCreateWindow(create_window(
+                canvas_id,
+            )))
+            .unwrap_or_else(|_| panic!("Something went horribly wrong!"));
+    }
+}
+
+#[wasm_bindgen]
+impl RenderingNever {
+    pub fn new() -> Self {
+        Self(Rendering::new())
+    }
+
+    pub fn get_proxy(&self) -> MyEventLoopProxy {
+        MyEventLoopProxy(self.0.get_proxy())
+    }
+
+    pub fn run(self) {
+        self.0.run()
+    }
+}
 
 pub struct Rendering<Q: 'static> {
     event_loop: EventLoop<RenderingUserEvent<Q>>,
@@ -88,11 +126,11 @@ pub fn create_window(
     canvas_id: &str,
 ) -> Rc<
     dyn FnOnce(
-        &EventLoopWindowTarget<RenderingUserEvent<Infallible>>,
+        &EventLoopWindowTarget<RenderingUserEvent<()>>,
     ) -> Box<
         dyn FnMut(
-            &winit::event::Event<RenderingUserEvent<Infallible>>,
-            &winit::event_loop::EventLoopWindowTarget<RenderingUserEvent<Infallible>>,
+            &winit::event::Event<RenderingUserEvent<()>>,
+            &winit::event_loop::EventLoopWindowTarget<RenderingUserEvent<()>>,
             &mut winit::event_loop::ControlFlow,
         ),
     >,
@@ -114,7 +152,7 @@ pub fn create_window(
     println!("canvas {}", canvas_element.id());
 
     let callback = Rc::new(
-        |event_loop: &EventLoopWindowTarget<RenderingUserEvent<Infallible>>| {
+        |event_loop: &EventLoopWindowTarget<RenderingUserEvent<()>>| {
             let window = Window::from_event_loop(
                 WindowSettings {
                     title: "Instanced Shapes!".to_string(),
@@ -170,105 +208,103 @@ pub fn create_window(
 
             let inner_callback: Box<
                 dyn FnMut(
-                    &winit::event::Event<RenderingUserEvent<Infallible>>,
-                    &winit::event_loop::EventLoopWindowTarget<RenderingUserEvent<Infallible>>,
+                    &winit::event::Event<RenderingUserEvent<()>>,
+                    &winit::event_loop::EventLoopWindowTarget<RenderingUserEvent<()>>,
                     &mut winit::event_loop::ControlFlow,
                 ),
-            > = Box::new(
-                window.get_render_loop_impl::<RenderingUserEvent<Infallible>, _>(
-                    move |mut frame_input, event, event_loop, control_flow| {
-                        let viewport = Viewport {
-                            x: 0,
-                            y: 0,
-                            width: frame_input.viewport.width,
-                            height: frame_input.viewport.height,
-                        };
-                        camera.set_viewport(viewport);
+            > = Box::new(window.get_render_loop_impl::<RenderingUserEvent<()>, _>(
+                move |mut frame_input, event, event_loop, control_flow| {
+                    let viewport = Viewport {
+                        x: 0,
+                        y: 0,
+                        width: frame_input.viewport.width,
+                        height: frame_input.viewport.height,
+                    };
+                    camera.set_viewport(viewport);
 
-                        // Camera control must be after the gui update.
-                        control.handle_events(&mut camera, &mut frame_input.events);
+                    // Camera control must be after the gui update.
+                    control.handle_events(&mut camera, &mut frame_input.events);
 
-                        // Ensure we have the correct number of cubes, does no work if already correctly sized.
-                        let count = side_count * side_count * side_count;
-                        if non_instanced_meshes.len() != count {
-                            non_instanced_meshes.clear();
-                            for i in 0..count {
-                                let mut gm = Gm::new(
-                                    Mesh::new(&context, &CpuMesh::cube()),
-                                    PhysicalMaterial::new(
-                                        &context,
-                                        &CpuMaterial {
-                                            albedo: Color {
-                                                r: 128,
-                                                g: 128,
-                                                b: 128,
-                                                a: 255,
-                                            },
-                                            ..Default::default()
+                    // Ensure we have the correct number of cubes, does no work if already correctly sized.
+                    let count = side_count * side_count * side_count;
+                    if non_instanced_meshes.len() != count {
+                        non_instanced_meshes.clear();
+                        for i in 0..count {
+                            let mut gm = Gm::new(
+                                Mesh::new(&context, &CpuMesh::cube()),
+                                PhysicalMaterial::new(
+                                    &context,
+                                    &CpuMaterial {
+                                        albedo: Color {
+                                            r: 128,
+                                            g: 128,
+                                            b: 128,
+                                            a: 255,
                                         },
-                                    ),
-                                );
-                                let x = (i % side_count) as f32;
-                                let y = ((i as f32 / side_count as f32).floor() as usize
-                                    % side_count) as f32;
-                                let z = (i as f32 / side_count.pow(2) as f32).floor();
-                                gm.set_transformation(Mat4::from_translation(
-                                    3.0 * vec3(x, y, z)
-                                        - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
-                                ));
-                                gm.set_animation(|time| Mat4::from_angle_x(Rad(time)));
-                                non_instanced_meshes.push(gm);
-                            }
+                                        ..Default::default()
+                                    },
+                                ),
+                            );
+                            let x = (i % side_count) as f32;
+                            let y = ((i as f32 / side_count as f32).floor() as usize % side_count)
+                                as f32;
+                            let z = (i as f32 / side_count.pow(2) as f32).floor();
+                            gm.set_transformation(Mat4::from_translation(
+                                3.0 * vec3(x, y, z)
+                                    - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
+                            ));
+                            gm.set_animation(|time| Mat4::from_angle_x(Rad(time)));
+                            non_instanced_meshes.push(gm);
                         }
+                    }
 
-                        if instanced_mesh.instance_count() != count as u32 {
-                            instanced_mesh.set_instances(&Instances {
-                                transformations: (0..count)
-                                    .map(|i| {
-                                        let x = (i % side_count) as f32;
-                                        let y = ((i as f32 / side_count as f32).floor() as usize
-                                            % side_count)
-                                            as f32;
-                                        let z = (i as f32 / side_count.pow(2) as f32).floor();
-                                        Mat4::from_translation(
-                                            3.0 * vec3(x, y, z)
-                                                - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
-                                        )
-                                    })
-                                    .collect(),
-                                ..Default::default()
-                            });
-                        }
+                    if instanced_mesh.instance_count() != count as u32 {
+                        instanced_mesh.set_instances(&Instances {
+                            transformations: (0..count)
+                                .map(|i| {
+                                    let x = (i % side_count) as f32;
+                                    let y = ((i as f32 / side_count as f32).floor() as usize
+                                        % side_count)
+                                        as f32;
+                                    let z = (i as f32 / side_count.pow(2) as f32).floor();
+                                    Mat4::from_translation(
+                                        3.0 * vec3(x, y, z)
+                                            - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
+                                    )
+                                })
+                                .collect(),
+                            ..Default::default()
+                        });
+                    }
 
-                        // Always update the transforms for both the normal cubes as well as the instanced versions.
-                        // This shows that the difference in frame rate is not because of updating the transforms
-                        // and shows that the performance difference is not related to how we update the cubes.
-                        let time = (frame_input.accumulated_time * 0.001) as f32;
-                        instanced_mesh.animate(time);
+                    // Always update the transforms for both the normal cubes as well as the instanced versions.
+                    // This shows that the difference in frame rate is not because of updating the transforms
+                    // and shows that the performance difference is not related to how we update the cubes.
+                    let time = (frame_input.accumulated_time * 0.001) as f32;
+                    instanced_mesh.animate(time);
+                    non_instanced_meshes
+                        .iter_mut()
+                        .for_each(|m| m.animate(time));
+
+                    // Then, based on whether or not we render the instanced cubes, collect the renderable
+                    // objects.
+                    let render_objects: Vec<&dyn Object> = if is_instanced {
+                        instanced_mesh.into_iter().collect()
+                    } else {
                         non_instanced_meshes
-                            .iter_mut()
-                            .for_each(|m| m.animate(time));
+                            .iter()
+                            .map(|x| x as &dyn Object)
+                            .collect()
+                    };
 
-                        // Then, based on whether or not we render the instanced cubes, collect the renderable
-                        // objects.
-                        let render_objects: Vec<&dyn Object> = if is_instanced {
-                            instanced_mesh.into_iter().collect()
-                        } else {
-                            non_instanced_meshes
-                                .iter()
-                                .map(|x| x as &dyn Object)
-                                .collect()
-                        };
+                    frame_input
+                        .screen()
+                        .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
+                        .render(&camera, render_objects, &[&light0, &light1]);
 
-                        frame_input
-                            .screen()
-                            .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
-                            .render(&camera, render_objects, &[&light0, &light1]);
-
-                        FrameOutput::default()
-                    },
-                ),
-            );
+                    FrameOutput::default()
+                },
+            ));
             inner_callback
         },
     );
