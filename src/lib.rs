@@ -2,10 +2,15 @@ mod utils;
 
 use std::collections::HashMap;
 
-use three_d::*;
+use three_d::{
+    degrees, vec3, Camera, ClearState, Color, CpuMaterial, CpuMesh, DirectionalLight, FrameOutput,
+    Geometry, Gm, InstancedMesh, Instances, Mat4, Mesh, Object, OrbitControl, PhysicalMaterial,
+    Rad, Viewport, Window, WindowError, WindowSettings,
+};
 use wasm_bindgen::prelude::*;
 use winit::{
-    event_loop::{EventLoop, EventLoopWindowTarget},
+    event::Event,
+    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
     window::WindowId,
 };
 
@@ -42,19 +47,20 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
 pub struct Rendering {
-    event_loop: EventLoop<()>,
-    pending_windows: Vec<
-        fn(
-            &winit::event_loop::EventLoopWindowTarget<()>,
-        ) -> Box<
-            dyn FnMut(
-                &winit::event::Event<()>,
+    pending_handlers: Vec<
+        Box<
+            dyn FnOnce(
                 &winit::event_loop::EventLoopWindowTarget<()>,
-                &mut winit::event_loop::ControlFlow,
-            ),
+            ) -> Box<
+                dyn FnMut(
+                    &winit::event::Event<()>,
+                    &winit::event_loop::EventLoopWindowTarget<()>,
+                    &mut winit::event_loop::ControlFlow,
+                ),
+            >,
         >,
     >,
-    windows: HashMap<
+    handlers: HashMap<
         u64,
         Box<
             dyn FnMut(
@@ -70,22 +76,28 @@ pub struct Rendering {
 impl Rendering {
     #[wasm_bindgen]
     pub fn new() -> Self {
+        use winit::platform::web::EventLoopExtWebSys;
+
         utils::set_panic_hook();
 
-        /*event_loop.spawn(move |event, target, control_flow| {
-            event_loop_1(&event, target, control_flow);
-            event_loop_2(&event, target, control_flow);
-        });*/
+        let event_loop = EventLoop::new();
 
-        Self {
-            event_loop: EventLoop::new(),
-            pending_windows: Vec::new(),
-            windows: HashMap::new(),
-        }
+        let mut rendering = Self {
+            pending_handlers: Vec::new(),
+            handlers: HashMap::new(),
+        };
+
+        event_loop.spawn(move |event, target, control_flow| {
+            for handler in rendering.handlers.values_mut() {
+                handler(&event, target, control_flow);
+            }
+        });
+
+        rendering
     }
 
     #[wasm_bindgen]
-    pub fn create_window(&mut self, canvas_id: &str) -> u64 {
+    pub fn create_window(&mut self, canvas_id: &str) {
         // event_loop: &EventLoopWindowTarget<()>,
 
         let websys_window = web_sys::window()
@@ -104,153 +116,158 @@ impl Rendering {
 
         println!("canvas {}", canvas_element.id());
 
-        let window = Window::from_event_loop(
-            WindowSettings {
-                title: "Instanced Shapes!".to_string(),
-                max_size: Some((1280, 720)),
-                canvas: Some(canvas_element),
-                ..Default::default()
-            },
-            &event_loop,
-        )
-        .unwrap();
-        let context = window.gl();
-
-        let mut camera = Camera::new_perspective(
-            window.viewport(),
-            vec3(60.00, 50.0, 60.0), // camera position
-            vec3(0.0, 0.0, 0.0),     // camera target
-            vec3(0.0, 1.0, 0.0),     // camera up
-            degrees(45.0),
-            0.1,
-            1000.0,
-        );
-        let mut control = OrbitControl::new(vec3(0.0, 0.0, 0.0), 1.0, 1000.0);
-
-        let light0 = DirectionalLight::new(&context, 1.0, Color::WHITE, &vec3(0.0, -0.5, -0.5));
-        let light1 = DirectionalLight::new(&context, 1.0, Color::WHITE, &vec3(0.0, 0.5, 0.5));
-
-        // Container for non instanced meshes.
-        let mut non_instanced_meshes = Vec::new();
-
-        // Instanced mesh object, initialise with empty instances.
-        let mut instanced_mesh = Gm::new(
-            InstancedMesh::new(&context, &Instances::default(), &CpuMesh::cube()),
-            PhysicalMaterial::new(
-                &context,
-                &CpuMaterial {
-                    albedo: Color {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 255,
-                    },
+        let window_inserter = |event_loop: &EventLoopWindowTarget<()>| {
+            let window = Window::from_event_loop(
+                WindowSettings {
+                    title: "Instanced Shapes!".to_string(),
+                    max_size: Some((1280, 720)),
+                    canvas: Some(canvas_element),
                     ..Default::default()
                 },
-            ),
-        );
-        instanced_mesh.set_animation(|time| Mat4::from_angle_x(Rad(time)));
+                event_loop,
+            )
+            .unwrap();
+            let context = window.gl();
 
-        // Initial properties of the example, 2 cubes per side and non instanced.
-        let side_count = 4;
-        let is_instanced = true;
+            let mut camera = Camera::new_perspective(
+                window.viewport(),
+                vec3(60.00, 50.0, 60.0), // camera position
+                vec3(0.0, 0.0, 0.0),     // camera target
+                vec3(0.0, 1.0, 0.0),     // camera up
+                degrees(45.0),
+                0.1,
+                1000.0,
+            );
+            let mut control = OrbitControl::new(vec3(0.0, 0.0, 0.0), 1.0, 1000.0);
 
-        let window_id: u64 = window.window.id().into();
+            let light0 = DirectionalLight::new(&context, 1.0, Color::WHITE, &vec3(0.0, -0.5, -0.5));
+            let light1 = DirectionalLight::new(&context, 1.0, Color::WHITE, &vec3(0.0, 0.5, 0.5));
 
-        let event_handler = window.get_render_loop_impl::<(), _>(
-            move |mut frame_input, event, event_loop, control_flow| {
-                let viewport = Viewport {
-                    x: 0,
-                    y: 0,
-                    width: frame_input.viewport.width,
-                    height: frame_input.viewport.height,
-                };
-                camera.set_viewport(viewport);
+            // Container for non instanced meshes.
+            let mut non_instanced_meshes = Vec::new();
 
-                // Camera control must be after the gui update.
-                control.handle_events(&mut camera, &mut frame_input.events);
-
-                // Ensure we have the correct number of cubes, does no work if already correctly sized.
-                let count = side_count * side_count * side_count;
-                if non_instanced_meshes.len() != count {
-                    non_instanced_meshes.clear();
-                    for i in 0..count {
-                        let mut gm = Gm::new(
-                            Mesh::new(&context, &CpuMesh::cube()),
-                            PhysicalMaterial::new(
-                                &context,
-                                &CpuMaterial {
-                                    albedo: Color {
-                                        r: 128,
-                                        g: 128,
-                                        b: 128,
-                                        a: 255,
-                                    },
-                                    ..Default::default()
-                                },
-                            ),
-                        );
-                        let x = (i % side_count) as f32;
-                        let y =
-                            ((i as f32 / side_count as f32).floor() as usize % side_count) as f32;
-                        let z = (i as f32 / side_count.pow(2) as f32).floor();
-                        gm.set_transformation(Mat4::from_translation(
-                            3.0 * vec3(x, y, z) - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
-                        ));
-                        gm.set_animation(|time| Mat4::from_angle_x(Rad(time)));
-                        non_instanced_meshes.push(gm);
-                    }
-                }
-
-                if instanced_mesh.instance_count() != count as u32 {
-                    instanced_mesh.set_instances(&Instances {
-                        transformations: (0..count)
-                            .map(|i| {
-                                let x = (i % side_count) as f32;
-                                let y = ((i as f32 / side_count as f32).floor() as usize
-                                    % side_count) as f32;
-                                let z = (i as f32 / side_count.pow(2) as f32).floor();
-                                Mat4::from_translation(
-                                    3.0 * vec3(x, y, z)
-                                        - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
-                                )
-                            })
-                            .collect(),
+            // Instanced mesh object, initialise with empty instances.
+            let mut instanced_mesh = Gm::new(
+                InstancedMesh::new(&context, &Instances::default(), &CpuMesh::cube()),
+                PhysicalMaterial::new(
+                    &context,
+                    &CpuMaterial {
+                        albedo: Color {
+                            r: 128,
+                            g: 128,
+                            b: 128,
+                            a: 255,
+                        },
                         ..Default::default()
-                    });
-                }
+                    },
+                ),
+            );
+            instanced_mesh.set_animation(|time| Mat4::from_angle_x(Rad(time)));
 
-                // Always update the transforms for both the normal cubes as well as the instanced versions.
-                // This shows that the difference in frame rate is not because of updating the transforms
-                // and shows that the performance difference is not related to how we update the cubes.
-                let time = (frame_input.accumulated_time * 0.001) as f32;
-                instanced_mesh.animate(time);
-                non_instanced_meshes
-                    .iter_mut()
-                    .for_each(|m| m.animate(time));
+            // Initial properties of the example, 2 cubes per side and non instanced.
+            let side_count = 4;
+            let is_instanced = true;
 
-                // Then, based on whether or not we render the instanced cubes, collect the renderable
-                // objects.
-                let render_objects: Vec<&dyn Object> = if is_instanced {
-                    instanced_mesh.into_iter().collect()
-                } else {
+            let window_id: u64 = window.window.id().into();
+
+            let event_handler: Box<
+                dyn FnMut(&Event<()>, &EventLoopWindowTarget<()>, &mut ControlFlow) + 'static,
+            > = Box::new(window.get_render_loop_impl::<(), _>(
+                move |mut frame_input, event, event_loop, control_flow| {
+                    let viewport = Viewport {
+                        x: 0,
+                        y: 0,
+                        width: frame_input.viewport.width,
+                        height: frame_input.viewport.height,
+                    };
+                    camera.set_viewport(viewport);
+
+                    // Camera control must be after the gui update.
+                    control.handle_events(&mut camera, &mut frame_input.events);
+
+                    // Ensure we have the correct number of cubes, does no work if already correctly sized.
+                    let count = side_count * side_count * side_count;
+                    if non_instanced_meshes.len() != count {
+                        non_instanced_meshes.clear();
+                        for i in 0..count {
+                            let mut gm = Gm::new(
+                                Mesh::new(&context, &CpuMesh::cube()),
+                                PhysicalMaterial::new(
+                                    &context,
+                                    &CpuMaterial {
+                                        albedo: Color {
+                                            r: 128,
+                                            g: 128,
+                                            b: 128,
+                                            a: 255,
+                                        },
+                                        ..Default::default()
+                                    },
+                                ),
+                            );
+                            let x = (i % side_count) as f32;
+                            let y = ((i as f32 / side_count as f32).floor() as usize % side_count)
+                                as f32;
+                            let z = (i as f32 / side_count.pow(2) as f32).floor();
+                            gm.set_transformation(Mat4::from_translation(
+                                3.0 * vec3(x, y, z)
+                                    - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
+                            ));
+                            gm.set_animation(|time| Mat4::from_angle_x(Rad(time)));
+                            non_instanced_meshes.push(gm);
+                        }
+                    }
+
+                    if instanced_mesh.instance_count() != count as u32 {
+                        instanced_mesh.set_instances(&Instances {
+                            transformations: (0..count)
+                                .map(|i| {
+                                    let x = (i % side_count) as f32;
+                                    let y = ((i as f32 / side_count as f32).floor() as usize
+                                        % side_count)
+                                        as f32;
+                                    let z = (i as f32 / side_count.pow(2) as f32).floor();
+                                    Mat4::from_translation(
+                                        3.0 * vec3(x, y, z)
+                                            - 1.5 * (side_count as f32) * vec3(1.0, 1.0, 1.0),
+                                    )
+                                })
+                                .collect(),
+                            ..Default::default()
+                        });
+                    }
+
+                    // Always update the transforms for both the normal cubes as well as the instanced versions.
+                    // This shows that the difference in frame rate is not because of updating the transforms
+                    // and shows that the performance difference is not related to how we update the cubes.
+                    let time = (frame_input.accumulated_time * 0.001) as f32;
+                    instanced_mesh.animate(time);
                     non_instanced_meshes
-                        .iter()
-                        .map(|x| x as &dyn Object)
-                        .collect()
-                };
+                        .iter_mut()
+                        .for_each(|m| m.animate(time));
 
-                frame_input
-                    .screen()
-                    .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
-                    .render(&camera, render_objects, &[&light0, &light1]);
+                    // Then, based on whether or not we render the instanced cubes, collect the renderable
+                    // objects.
+                    let render_objects: Vec<&dyn Object> = if is_instanced {
+                        instanced_mesh.into_iter().collect()
+                    } else {
+                        non_instanced_meshes
+                            .iter()
+                            .map(|x| x as &dyn Object)
+                            .collect()
+                    };
 
-                FrameOutput::default()
-            },
-        );
+                    frame_input
+                        .screen()
+                        .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
+                        .render(&camera, render_objects, &[&light0, &light1]);
 
-        self.windows.insert(window_id, Box::new(event_handler));
+                    FrameOutput::default()
+                },
+            ));
+            event_handler
+        };
 
-        window_id
+        self.pending_handlers.push(Box::new(window_inserter));
     }
 }
