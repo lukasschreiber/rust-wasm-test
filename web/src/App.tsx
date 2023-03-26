@@ -16,7 +16,8 @@ function App() {
   const rendering = useContext(RenderingContext)
 
   useEffect(() => {
-    rendering.send_event()
+    rendering.create_window("canvas1")
+    rendering.create_window("canvas2")
   })
 
   return (

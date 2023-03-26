@@ -23,12 +23,11 @@ use winit::{
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[derive(Clone)]
 #[non_exhaustive]
 
 pub enum RenderingUserEvent<Q: 'static> {
     InternalCreateWindow(
-        Rc<
+        Box<
             dyn FnOnce(
                 &EventLoopWindowTarget<RenderingUserEvent<Q>>,
             ) -> Box<
@@ -43,8 +42,35 @@ pub enum RenderingUserEvent<Q: 'static> {
     Other(Q),
 }
 
+impl<Q: Clone + 'static> Clone for RenderingUserEvent<Q> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::InternalCreateWindow(arg0) => panic!("can't clone InternalCreateWindow"),
+            Self::Other(arg0) => Self::Other(arg0.clone()),
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub struct RenderingNever(Rendering<()>);
+
+#[wasm_bindgen]
+impl RenderingNever {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self(Rendering::new())
+    }
+
+    #[wasm_bindgen]
+    pub fn get_proxy(&self) -> MyEventLoopProxy {
+        MyEventLoopProxy(self.0.get_proxy())
+    }
+
+    #[wasm_bindgen]
+    pub fn run(self) {
+        self.0.run()
+    }
+}
 
 #[wasm_bindgen]
 pub struct MyEventLoopProxy(EventLoopProxy<RenderingUserEvent<()>>);
@@ -63,21 +89,6 @@ impl MyEventLoopProxy {
                 canvas_id,
             )))
             .unwrap_or_else(|_| panic!("Something went horribly wrong!"));
-    }
-}
-
-#[wasm_bindgen]
-impl RenderingNever {
-    pub fn new() -> Self {
-        Self(Rendering::new())
-    }
-
-    pub fn get_proxy(&self) -> MyEventLoopProxy {
-        MyEventLoopProxy(self.0.get_proxy())
-    }
-
-    pub fn run(self) {
-        self.0.run()
     }
 }
 
@@ -110,12 +121,15 @@ impl<Q: 'static> Rendering<Q> {
         > = Vec::new();
 
         self.event_loop.run(move |event, target, control_flow| {
-            if let Event::UserEvent(RenderingUserEvent::InternalCreateWindow(callback)) = event {
-                handlers.push(callback(target));
-            } else {
-                // TODO FIXME remove our custom type wrapper RenderingUserEvent and then maybe we could use an FnOnce above
-                for handler in handlers.iter_mut() {
-                    handler(&event, target, control_flow);
+            match event {
+                Event::UserEvent(RenderingUserEvent::InternalCreateWindow(callback)) => {
+                    handlers.push(callback(target));
+                }
+                event => {
+                    // TODO FIXME remove our custom type wrapper RenderingUserEvent and then maybe we could use an FnOnce above
+                    for handler in handlers.iter_mut() {
+                        handler(&event, target, control_flow);
+                    }
                 }
             }
         })
@@ -124,7 +138,7 @@ impl<Q: 'static> Rendering<Q> {
 
 pub fn create_window(
     canvas_id: &str,
-) -> Rc<
+) -> Box<
     dyn FnOnce(
         &EventLoopWindowTarget<RenderingUserEvent<()>>,
     ) -> Box<
@@ -151,7 +165,7 @@ pub fn create_window(
 
     println!("canvas {}", canvas_element.id());
 
-    let callback = Rc::new(
+    let callback = Box::new(
         |event_loop: &EventLoopWindowTarget<RenderingUserEvent<()>>| {
             let window = Window::from_event_loop(
                 WindowSettings {
