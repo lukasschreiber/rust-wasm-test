@@ -1,6 +1,6 @@
 mod utils;
 
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use three_d::{
     degrees, vec3, Camera, ClearState, Color, CpuMaterial, CpuMesh, DirectionalLight, FrameOutput,
@@ -10,11 +10,7 @@ use three_d::{
 use wasm_bindgen::prelude::*;
 use winit::{
     event::Event,
-    event_loop::{
-        ControlFlow, EventLoop, EventLoopBuilder, EventLoopClosed, EventLoopProxy,
-        EventLoopWindowTarget,
-    },
-    window::WindowId,
+    event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
 };
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -47,8 +43,8 @@ pub enum RenderingUserEvent<Q: 'static> {
 impl<Q: Clone + 'static> Clone for RenderingUserEvent<Q> {
     fn clone(&self) -> Self {
         match self {
-            Self::InternalCreateWindow(arg0, arg1) => panic!("can't clone InternalCreateWindow"),
-            Self::InternalDeleteWindow(arg0) => panic!("can't clone InternalDeleteWindow"),
+            Self::InternalCreateWindow(_, _) => panic!("can't clone InternalCreateWindow"),
+            Self::InternalDeleteWindow(_) => panic!("can't clone InternalDeleteWindow"),
             Self::Other(arg0) => Self::Other(arg0.clone()),
         }
     }
